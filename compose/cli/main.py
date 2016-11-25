@@ -45,7 +45,7 @@ from .errors import UserError
 from .formatter import ConsoleWarningFormatter
 from .formatter import Formatter
 from .log_printer import build_log_presenters
-from .log_printer import LogPrinter
+from .log_printer import LogPrinter, GridPrinter
 from .utils import get_version_info
 from .utils import yesno
 
@@ -502,6 +502,7 @@ class TopLevelCommand(object):
             --no-color          Produce monochrome output.
             -f, --follow        Follow log output.
             -t, --timestamps    Show timestamps.
+            -g, --grid          Output logs in a curses grid view (max 4 services).
             --tail="all"        Number of lines to show from the end of the logs
                                 for each container.
         """
@@ -513,13 +514,20 @@ class TopLevelCommand(object):
                 tail = int(tail)
             elif tail != 'all':
                 raise UserError("tail flag must be all or a number")
+
+        grid = options["--grid"]
+        if grid and len(containers) > 4:
+            raise UserError("grid view cannot display more than four containers")
+
         log_args = {
-            'follow': options['--follow'],
+            'follow': options['--follow'] or grid,
             'tail': tail,
             'timestamps': options['--timestamps']
         }
+
         print("Attaching to", list_containers(containers))
         log_printer_from_project(
+            GridPrinter if grid else LogPrinter,
             self.project,
             containers,
             options['--no-color'],
@@ -851,6 +859,7 @@ class TopLevelCommand(object):
                 return
 
             log_printer = log_printer_from_project(
+                GridPrinter,
                 self.project,
                 filter_containers_to_service_names(to_attach, service_names),
                 options['--no-color'],
@@ -1014,6 +1023,7 @@ def run_one_off_container(container_options, project, service, options):
 
 
 def log_printer_from_project(
+    printer,
     project,
     containers,
     monochrome,
@@ -1021,7 +1031,7 @@ def log_printer_from_project(
     cascade_stop=False,
     event_stream=None,
 ):
-    return LogPrinter(
+    return printer(
         containers,
         build_log_presenters(project.service_names, monochrome),
         event_stream or project.events(),
